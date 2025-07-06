@@ -1,0 +1,92 @@
+#comandos de ejecucion Localmente windows 10
+
+    #crear entorno virtual windows local
+        cmd->conda create -n py36 python=3.6
+        cmd->conda activate py36
+        cmd->python --version
+    #crear entorno virtual "py"
+        cmd->py -3.7 --version
+        cmd->py -3.7 -m venv venv37
+        cmd->.\mi_entorno_37\Scripts\activate
+    
+#se modifico
+    pydevd_plugin_utils.py -> C:\Users\FeymanT\.vscode\extensions\ms-python.debugpy-2025.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\_pydevd_bundle
+    from typing import Tuple
+    from typing_extensions import Literal
+
+
+
+
+
+#comandos ejecucion ec2 aws con deep learning gpu
+    Entrar en modo root wsl en consola windows
+
+    #subir carpeta windows  -> instancia ec2
+        cmd->scp -i cnetkey.pem data.7z ec2-user@ec2-3-149-214-13.us-east-2.compute.amazonaws.com:/home/ec2-user/cnet
+    #descargar de ec2 -> windows wsl
+        cmd->scp -i serverunet2.pem ubuntu@ec2-54-204-135-78.compute-1.amazonaws.com:/home/ubuntu/U-net_2/208_multiclass_Unet_sandstone.py /mnt/f/T-2025
+    #descomprimir 7z
+        cmd->sudo apt install p7zip-full
+        cmd->7z x archivo.7z -o/ruta/de/destino -y
+    #comprimir 7z
+        cmd->7z a data.7z carpeta1/ carpeta2/
+
+
+    #Instalar conda para usar python 3.6.8
+        cmd->wget https://repo.anaconda.com/archive/Anaconda3-2024.10-1-Linux-x86_64.sh
+        cmd->bash Anaconda3-2024.10-1-Linux-x86_64.sh
+        cmd->source ~/.bashrc   //agregar anaconda al path
+        cmd->conda --version    //verificacion de instalacion
+        cmd->conda create --name mi_entorno python=3.6.8 -y         //crear entorno virtual
+        cmd->conda activate mi_entorno
+
+    #Instalacion de librerias para funcionamiento  python3.6.8
+        cmd->pip install .\protobuf-3.17.3-py2.py3-none-any.whl  //se debe descargar https://pypi.org/project/protobuf/3.17.3/#files
+        cmd->pip install -r requirements.txt
+
+#COMANDOS DE EJECUCION DE MODELO
+    #modo entrenamiento en windows 10 local sin gpu
+        cmd->python main.py --train --initial_lr 0.01 --net segcapsr3 --loss dice --data_root_dir=data --which_gpus=-2 --gpus=0
+    #modo de test modelo en windows 10 local sin gpu
+        cmd->python main.py --test --net segcapsr3 --data_root_dir=data --loglevel 2 --which_gpus -1 --gpus 1  --weights_path saved_models/segcapsr3/split-0_batch-1_shuff-1_aug-1_loss-dice_slic-1_sub--1_strid-1_lr-0.1_recon-131.072_model_20250526-001409.hdf5
+        cmd->python main.py --test --net segcapsr3 --data_root_dir=data --loglevel 2 --which_gpus=-2 --gpus=0  --weights_path saved_models/segcapsr3/split-0_batch-1_shuff-1_aug-1_loss-dice_slic-1_sub--1_strid-1_lr-0.1_recon-131.072_model_20250526-001409.hdf5
+    #modo entrenamiento en ec2 con 'ami deep learning' con gpu
+        cmd->python main.py --train --initial_lr 0.001 --net segcapsr3 --loss dice --data_root_dir=data --which_gpus -1 --gpus 1 --epochs 8 --aug_data 1
+    #modo test en ec2 con 'ami deep learning' con gpu
+        cmd->python main.py --test --net segcapsr3 --data_root_dir=data --loglevel 2 --which_gpus=0 --gpus=1  --weights_path saved_models/segcapsr3/split-0_batch-1_shuff-1_aug-1_loss-dice_slic-1_sub--1_strid-1_lr-0.0001_recon-131.072_model_20250526-225749.hdf5
+
+#VERIFICACIONES DE INSTANCIA EC2 RECURSOS
+    #ver numero de nucleos
+        cmd->nproc
+    #detalles procesador
+        cmd->lscpu
+    #espacio en disco
+        cmd->df -h
+    #ram en uso
+        cmd->free -h
+    #uso de memoria ram en tiempo real
+        cmd->watch -n 1 free -h
+    #monitoreo en tiempo real nvidia-smi
+        cmd->watch -n 1 nvidia-smi
+
+
+#CONFIGURACION AMI EC2 DEEP LEARNING
+
+
+
+#PROCESAMIENTO PREVIO A ENTRENAMIENTO DE DATOS
+    #redimensionar a multiplos de 512
+        cmd->python process_data_v1.py resize --dir_data_imgs "D:\data_jpg_recortado_gimp" --dir_data_output "data_500_gimp" 
+    #verificar que las imagenes que procesa no sean un tamaño mayor a 5gb
+        cmd->python .\verificar_proceso_5gb_img.py
+    #verificar que los tamaños sean multiplos de 512
+        cmd->python .\verificar_tamanio_img.py
+    #ejecutar labelme. activar "conda activate labelme"
+        cmd->
+
+
+
+    #despues de recortar con gimp se debe redimensionar a multiplos de 512
+	cmd->python process_data_v1.py resize --dir_data_imgs "F:\T-2025\codes\dataprocess\semantic_segmentation\data_1760_3500_gimp" --dir_data_output "data_1760_3500_gimp_resize"
+	cmd->python verificar_tamanio.py
+	cmd->python convertir_rgba_imgs_masks.py
