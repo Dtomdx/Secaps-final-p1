@@ -166,49 +166,53 @@ def plot_training(training_history, arguments):
     f.savefig(join(arguments.output_dir, arguments.output_name + '_plots_' + arguments.time + '.png'))
     plt.close()
 
-def train(args, train_list, val_list, u_model, net_input_shape):
-    # Compile the loaded model
-    model = compile_model(args=args, net_input_shape=net_input_shape, uncomp_model=u_model)
-    if args.retrain == 1:
-        # Retrain the model. Load re-train weights.
-        weights_path = join(args.data_root_dir, args.weights_path)        
-        logging.info('\nRetrain model from weights_path=%s'%(weights_path))
-        model.load_weights(weights_path)
-    else: # Train from scratch
-        pass
-    # Set the callbacks
-    callbacks = get_callbacks(args)
-
-    # Training the network
-# Original project parameters. TODO: Get hyper parameters from input.
-#     history = model.fit_generator(
-#         generate_train_batches(args.data_root_dir, train_list, net_input_shape, net=args.net,
-#                                batchSize=args.batch_size, numSlices=args.slices, subSampAmt=args.subsamp,
-#                                stride=args.stride, shuff=args.shuffle_data, aug_data=args.aug_data),
-#         max_queue_size=40, workers=4, use_multiprocessing=False,
-#         steps_per_epoch=10000,
-#         validation_data=generate_val_batches(args.data_root_dir, val_list, net_input_shape, net=args.net,
-#                                              batchSize=args.batch_size,  numSlices=args.slices, subSampAmt=0,
-#                                              stride=20, shuff=args.shuffle_data),
-#         validation_steps=500, # Set validation stride larger to see more of the data.
-#         epochs=200,
-#         callbacks=callbacks,
-#         verbose=1)
-
-# POC testing, change stride from 20 to args.stride in generate_val_batches
-    generate_train_batches, generate_val_batches, _ = get_generator(args.dataset)
-    history = model.fit_generator(
-        generate_train_batches(args.data_root_dir, train_list, net_input_shape, net=args.net,
-                               batchSize=args.batch_size, numSlices=args.slices, subSampAmt=args.subsamp,
-                               stride=args.stride, shuff=args.shuffle_data, aug_data=args.aug_data),
-        max_queue_size=8, workers=4, use_multiprocessing=args.use_multiprocessing,
-        steps_per_epoch=args.steps_per_epoch,
-        validation_data=generate_val_batches(args.data_root_dir, val_list, net_input_shape, net=args.net,
-                                             batchSize=args.batch_size,  numSlices=args.slices, subSampAmt=0,
-                                             stride=args.stride, shuff=args.shuffle_data),
-        validation_steps=5, # Set validation stride larger to see more of the data.
-        epochs=args.epochs,
-        callbacks=callbacks,
-        verbose=1)
-    # Plot the training data collected
+def train(args, train_list, val_list, u_model, net_input_shape, custom_train_generator=None):  
+    # Compile the loaded model  
+    model = compile_model(args=args, net_input_shape=net_input_shape, uncomp_model=u_model)  
+    if args.retrain == 1:  
+        # Retrain the model. Load re-train weights.  
+        weights_path = join(args.data_root_dir, args.weights_path)          
+        logging.info('\nRetrain model from weights_path=%s'%(weights_path))  
+        model.load_weights(weights_path)  
+    else: # Train from scratch  
+        pass  
+    # Set the callbacks  
+    callbacks = get_callbacks(args)  
+  
+    # Training the network  
+    if custom_train_generator is not None:  
+        # Usar el generador personalizado pasado desde main.py  
+        train_generator = custom_train_generator  
+        # Obtener solo el generador de validación del sistema estándar  
+        _, generate_val_batches, _ = get_generator(args.dataset)  
+          
+        history = model.fit_generator(  
+            train_generator,  # Usar el generador personalizado  
+            max_queue_size=8, workers=4, use_multiprocessing=args.use_multiprocessing,  
+            steps_per_epoch=args.steps_per_epoch,  
+            validation_data=generate_val_batches(args.data_root_dir, val_list, net_input_shape, net=args.net,  
+                                                 batchSize=args.batch_size,  numSlices=args.slices, subSampAmt=0,  
+                                                 stride=args.stride, shuff=args.shuffle_data),  
+            validation_steps=5, # Set validation stride larger to see more of the data.  
+            epochs=args.epochs,  
+            callbacks=callbacks,  
+            verbose=1)  
+    else:  
+        # Usar el sistema estándar  
+        generate_train_batches, generate_val_batches, _ = get_generator(args.dataset)  
+        history = model.fit_generator(  
+            generate_train_batches(args.data_root_dir, train_list, net_input_shape, net=args.net,  
+                                   batchSize=args.batch_size, numSlices=args.slices, subSampAmt=args.subsamp,  
+                                   stride=args.stride, shuff=args.shuffle_data, aug_data=args.aug_data),  
+            max_queue_size=8, workers=4, use_multiprocessing=args.use_multiprocessing,  
+            steps_per_epoch=args.steps_per_epoch,  
+            validation_data=generate_val_batches(args.data_root_dir, val_list, net_input_shape, net=args.net,  
+                                                 batchSize=args.batch_size,  numSlices=args.slices, subSampAmt=0,  
+                                                 stride=args.stride, shuff=args.shuffle_data),  
+            validation_steps=5, # Set validation stride larger to see more of the data.  
+            epochs=args.epochs,  
+            callbacks=callbacks,  
+            verbose=1)  
+      
+    # Plot the training data collected  
     plot_training(history, args)

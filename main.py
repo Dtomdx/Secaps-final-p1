@@ -1,47 +1,4 @@
-'''
-Capsules for Object Segmentation (SegCaps)
-Original Paper by Rodney LaLonde and Ulas Bagci (https://arxiv.org/abs/1804.04241)
-Code written by: Rodney LaLonde
-If you use significant portions of this code or the ideas from our paper, please cite it :)
-If you have any questions, please email me at lalonde@knights.ucf.edu.
 
-This is the main file for the project. From here you can train, test,
-    and manipulate the SegCaps of models.
-Please see the README for detailed instructions for this project.
-
-==============
-This is the entry point of the package to train UNet, tiramisu,
-    Capsule Nets (capsbasic) or SegCaps(segcapsr1 or segcapsr3).
-
-@author: Cheng-Lin Li a.k.a. Clark
-
-@copyright:2018 Cheng-Lin Li@Insight AI. All rights reserved.
-
-@license:  Licensed under the Apache License v2.0.
-            http://www.apache.org/licenses/
-
-@contact:    clark.cl.li@gmail.com
-
-Tasks:
-    The program load parameters for training, testing, manipulation
-        for all models.
-
-
-Data:
-    MS COCO 2017 or LUNA 2016 were tested on this package.
-    You can leverage your own data set but the mask images should follow the format of MS COCO or with background color = 0 on each channel.
-
-Enhancement: 
-  1. The program was modified to support python 3.6 on Ubuntu 18.04 and Windows 10.
-  2. Support not only 3D computed tomography scan images but also 2D Microsoft Common Objects in COntext (MS COCO) dataset images.
-  3. Add Kfold parameter for users to customize the cross validation task. K = 1 will force model to perform overfit.
-  4. Add retrain parameter to enable users to reload pre-trained weights and retrain the model.
-  5. Add initial learning rate for users to adjust.
-  6. Add steps per epoch for users to adjust.
-  7. Add number of patience for early stop of training to users.
-  8. Add 'bce_dice' loss function as binary cross entropy + soft dice coefficient.
-  9. Revise 'train', 'test', 'manip' flags from 0 or 1 to flags show up or not to indicate the behavior of main program.
-'''
 
 from __future__ import print_function
 import sys
@@ -56,6 +13,7 @@ from time import gmtime, strftime
 from keras.utils import print_summary
 from utils.load_data import load_data, split_data
 from utils.model_helper import create_model
+from utils.load_2D_data import generate_train_batches_patches, generate_train_batches_patches_multisize
 
 time = strftime("%Y%m%d-%H%M%S", gmtime())
 RESOLUTION = 512  # Resolution of the input for the model.
@@ -66,7 +24,13 @@ LOGGING_FORMAT = '%(levelname)s %(asctime)s: %(message)s'
 def main(args):
     # Ensure training, testing, and manip are not all turned off
     assert (args.train or args.test or args.manip), 'Cannot have train, test, and manip all set to 0, Nothing to do.'
-
+    # Validar parámetros multi-escala  
+    validate_multisize_params(args)  
+      
+    # Logging para entrenamiento multi-escala  
+    if args.multisize_training:  
+        logging.info(f'Using multi-size training with patch sizes: {args.patch_sizes}')  
+        logging.info(f'Size distribution: {args.size_distribution}')
     # Load the training, validation, and testing data
     try:
         train_list, val_list, test_list = load_data(args.data_root_dir, args.split_num)
@@ -134,10 +98,12 @@ def main(args):
     except:
         pass
 
-    if args.train == True:
-        from train import train
-        # Run training
-        train(args, train_list, val_list, model_list[0], net_input_shape)
+    if args.train == True:  
+        from train import train  
+        # Obtener el generador apropiado  
+        train_generator = get_train_generator(args, args.data_root_dir, train_list, net_input_shape, args.net)  
+        # Pasar el generador a la función train  
+        train(args, train_list, val_list, model_list[0], net_input_shape, custom_train_generator=train_generator)
 
     if args.test == True:
         from test import test
@@ -164,7 +130,31 @@ def loglevel(level=0):
     except LookupError:
         return logging.NOTSET
 
+def validate_multisize_params(args):  
+    if args.multisize_training:  
+        if len(args.patch_sizes) != len(args.size_distribution):  
+            raise ValueError("patch_sizes and size_distribution must have same length")  
+        if abs(sum(args.size_distribution) - 1.0) > 1e-6:  
+            raise ValueError("size_distribution must sum to 1.0")  
+        if any(size < 128 or size > 512 for size in args.patch_sizes):  
+            raise ValueError("patch_sizes must be between 128 and 512")
 
+def get_train_generator(args, root_path, train_list, net_input_shape, net):  
+            if args.multisize_training:  
+                return generate_train_batches_patches_multisize(  
+                    root_path, train_list, net_input_shape, net,  
+                    batchSize=args.batch_size,  
+                    patch_sizes=args.patch_sizes,  
+                    size_distribution=args.size_distribution,  
+                    aug_data=args.aug_data  
+                )  
+            else:  
+                return generate_train_batches_patches(  
+                    root_path, train_list, net_input_shape, net,  
+                    batchSize=args.batch_size,  
+                    aug_data=args.aug_data  
+                )
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Train on Medical Data or MS COCO dataset'
@@ -256,7 +246,14 @@ if __name__ == '__main__':
                             ' default 0=train your model from scratch, 1 = retrain existing model.'
                             ' The weights file location of the model has to be provided by --weights_path parameter' )    
     parser.add_argument('--loglevel', type=int, default=4, help='loglevel 3 = debug, 2 = info, 1 = warning, '
-                            ' 4 = error, > 4 =critical') 
+                            ' 4 = error, > 4 =critical')
+    #aumentado para multiescala
+    parser.add_argument('--multisize_training', type=int, default=0, choices=[0, 1],  
+                    help='Enable multi-size patch training (0: disabled, 1: enabled)')  
+    parser.add_argument('--patch_sizes', nargs='+', type=int, default=[512],  
+                        help='List of patch sizes for multi-scale training (e.g., 128 256 512)')  
+    parser.add_argument('--size_distribution', nargs='+', type=float, default=[1.0],  
+                        help='Distribution weights for each patch size (must sum to 1.0)')
     arguments = parser.parse_args()
 
     # assuming loglevel is bound to the string value obtained from the

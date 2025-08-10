@@ -363,6 +363,22 @@ def split_image_into_patches(image, patch_size=512, overlap=0):
       
     return patches, positions
 
+def split_image_into_patches_multisize(image, patch_sizes=[128, 256, 512], overlap=0):  
+    """  
+    Divide una imagen en patches de múltiples tamaños  
+    """  
+    all_patches = []  
+    all_positions = []  
+    all_sizes = []  
+      
+    for patch_size in patch_sizes:  
+        patches, positions = split_image_into_patches(image, patch_size, overlap)  
+        all_patches.extend(patches)  
+        all_positions.extend(positions)  
+        all_sizes.extend([patch_size] * len(patches))  
+      
+    return all_patches, all_positions, all_sizes
+
 
 def reconstruct_from_patches(patches, positions, original_shape):  
     """  

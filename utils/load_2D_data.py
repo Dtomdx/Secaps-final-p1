@@ -1,32 +1,4 @@
-'''
-This program includes all functions of 2D color image processing for UNet, tiramisu, Capsule Nets (capsbasic) or SegCaps(segcapsr1 or segcapsr3).
 
-@author: Cheng-Lin Li a.k.a. Clark
-
-@copyright:  2018 Cheng-Lin Li@Insight AI. All rights reserved.
-
-@license:    Licensed under the Apache License v2.0. http://www.apache.org/licenses/
-
-@contact:    clark.cl.li@gmail.com
-
-Tasks:
-    The program based on parameters from main.py to load 2D color image files from folders.
-
-    The program will convert all image files into numpy format then store training/testing images into 
-    ./data/np_files and training (and testing) file lists under ./data/split_list folders. 
-    You need to remove these two folders every time if you want to replace your training image and mask files. 
-    The program will only read data from np_files folders.
-    
-Data:
-    MS COCO 2017 or LUNA 2016 were tested on this package.
-    You can leverage your own data set but the mask images should follow the format of MS COCO or with background color = 0 on each channel.
-    
-
-Features: 
-    1. Integrated with MS COCO 2017 dataset.
-    2. Use PILLOW library instead of SimpleITK for better support on RasberryPi
-    3. add new generate_test_image function to process single image frame for video stream
-'''
 
 from __future__ import print_function
 # import threading
@@ -398,6 +370,101 @@ def convert_data_to_numpy_patches(root_path, img_name, no_masks=False, overwrite
         return [], [], [], None
 
 
+def convert_data_to_numpy_patches_multisize(root_path, img_name, no_masks=False,   
+                                          overwrite=False, patch_sizes=[128, 256, 512]):  
+    fname = img_name[:-4]  
+    numpy_path = join(root_path, 'np_files_patches_multisize')  
+    img_path = join(root_path, 'imgs')  
+    mask_path = join(root_path, 'masks')  
+      
+    try:  
+        makedirs(numpy_path)  
+    except:  
+        pass  
+      
+    if not overwrite:  
+        try:  
+            with np.load(join(numpy_path, fname + '.npz')) as data:  
+                return data['patches'], data['mask_patches'], data['positions'], data['patch_sizes'], data['original_shape']  
+        except:  
+            pass  
+      
+    try:  
+        img = np.array(Image.open(join(img_path, img_name)))  
+        print("[*] IMG: ", img.shape)  
+        original_shape = img.shape  
+          
+        all_patches = []  
+        all_mask_patches = []  
+        all_positions = []  
+        all_patch_sizes = []  
+          
+        # Generar patches para cada tamaño  
+        for patch_size in patch_sizes:  
+            h, w = img.shape[:2]  
+              
+            # Verificar si las dimensiones permiten patches de este tamaño  
+            if h >= patch_size and w >= patch_size:  
+                # Dividir en patches del tamaño actual  
+                img_patches, positions = split_image_into_patches(img, patch_size)  
+                  
+                # Procesar cada patch  
+                for patch in img_patches:  
+                    # Redimensionar patch a 512x512 para consistencia  
+                    if patch_size != 512:  
+                        patch_resized = np.array(Image.fromarray(patch).resize((512, 512)))  
+                    else:  
+                        patch_resized = patch  
+                      
+                    processed_patch = convert_img_data(patch_resized, 3)  
+                    all_patches.append(processed_patch)  
+                    all_patch_sizes.append(patch_size)  
+                  
+                all_positions.extend(positions)  
+                  
+                # Procesar máscaras si es necesario  
+                if not no_masks:  
+                    mask = np.array(Image.open(join(mask_path, img_name)))  
+                    mask_patch_list, _ = split_image_into_patches(mask, patch_size)  
+                      
+                    for mask_patch in mask_patch_list:  
+                        # Redimensionar máscara a 512x512  
+                        if patch_size != 512:  
+                            mask_resized = np.array(Image.fromarray(mask_patch).resize((512, 512)))  
+                        else:  
+                            mask_resized = mask_patch  
+                          
+                        processed_mask_patch = convert_mask_data(mask_resized)  
+                        all_mask_patches.append(processed_mask_patch)  
+          
+        # Guardar todos los patches y metadatos  
+        if not no_masks:  
+            np.savez_compressed(join(numpy_path, fname + '.npz'),  
+                              patches=all_patches,  
+                              mask_patches=all_mask_patches,  
+                              positions=all_positions,  
+                              patch_sizes=all_patch_sizes,  
+                              original_shape=original_shape)  
+        else:  
+            np.savez_compressed(join(numpy_path, fname + '.npz'),  
+                              patches=all_patches,  
+                              positions=all_positions,  
+                              patch_sizes=all_patch_sizes,  
+                              original_shape=original_shape)  
+          
+        if not no_masks:  
+            return all_patches, all_mask_patches, all_positions, all_patch_sizes, original_shape  
+        else:  
+            return all_patches, all_positions, all_patch_sizes, original_shape  
+              
+    except Exception as e:  
+        print('\n'+'-'*100)  
+        print('Unable to load img or masks for {}'.format(fname))  
+        print(e)  
+        print('Skipping file')  
+        print('-'*100+'\n')  
+        return [], [], [], [], None
+    
 @threadsafe_generator  
 def generate_train_batches_patches(root_path, train_list, net_input_shape, net, batchSize=1,   
                                  numSlices=1, subSampAmt=-1, stride=1, downSampAmt=1,   
@@ -459,6 +526,97 @@ def generate_train_batches_patches(root_path, train_list, net_input_shape, net, 
             else:  
                 yield (img_batch[:count,...], mask_batch[:count,...])
 
+
+@threadsafe_generator  
+def generate_train_batches_patches_multisize(root_path, train_list, net_input_shape, net,   
+                                           batchSize=1, numSlices=1, subSampAmt=-1, stride=1,   
+                                           downSampAmt=1, shuff=1, aug_data=1,   
+                                           patch_sizes=[128, 256, 512],   
+                                           size_distribution=[0.3, 0.3, 0.4]):  
+    """  
+    Generador que alterna entre patches de diferentes tamaños  
+    size_distribution: proporción de cada tamaño [128x128, 256x256, 512x512]  
+    """  
+      
+    # Crear placeholders para patches (siempre 512x512 después del redimensionado)  
+    img_batch = np.zeros((np.concatenate(((batchSize,), (512, 512, net_input_shape[2])))), dtype=np.float32)  
+    mask_batch = np.zeros((np.concatenate(((batchSize,), (512, 512, 1)))), dtype=np.uint8)  
+      
+    while True:  
+        if shuff:  
+            shuffle(train_list)  
+        count = 0  
+          
+        for i, scan_name in enumerate(train_list):  
+            try:  
+                scan_name = scan_name[0]  
+                path_to_np = join(root_path, 'np_files_patches_multisize', basename(scan_name)[:-3]+'npz')  
+                with np.load(path_to_np, allow_pickle=True) as data:  
+                    patches = data['patches']  
+                    mask_patches = data['mask_patches']  
+                    positions = data['positions']  
+                    patch_sizes = data['patch_sizes']  
+                    original_shape = data['original_shape']  
+            except:  
+                logging.info('\nPre-made numpy array not found for {}.\nCreating now...'.format(scan_name[:-4]))  
+                patches, mask_patches, positions, patch_sizes, original_shape = convert_data_to_numpy_patches_multisize(  
+                    root_path, scan_name, patch_sizes=patch_sizes)  
+                if len(patches) == 0:  
+                    continue  
+                else:  
+                    logging.info('\nFinished making npz file.')  
+              
+            # Crear índices balanceados por tamaño  
+            size_indices = {size: [] for size in patch_sizes}  
+            for idx, size in enumerate(patch_sizes):  
+                size_indices[size].append(idx)  
+              
+            # Seleccionar patches según la distribución deseada  
+            selected_indices = []  
+            for size_idx, size in enumerate([128, 256, 512]):  
+                if size in size_indices and len(size_indices[size]) > 0:  
+                    num_samples = int(len(patches) * size_distribution[size_idx])  
+                    if num_samples > 0:  
+                        sampled = np.random.choice(size_indices[size],   
+                                                 min(num_samples, len(size_indices[size])),   
+                                                 replace=False)  
+                        selected_indices.extend(sampled)  
+              
+            # Mezclar los índices seleccionados  
+            np.random.shuffle(selected_indices)  
+              
+            # Iterar sobre los patches seleccionados  
+            for patch_idx in selected_indices:  
+                patch = patches[patch_idx]  
+                mask_patch = mask_patches[patch_idx]  
+                  
+                # Verificar que el patch tenga contenido de máscara  
+                if not np.any(mask_patch):  
+                    continue  
+                  
+                img_batch[count, :, :, :] = patch  
+                mask_batch[count, :, :, :] = mask_patch  
+                  
+                count += 1  
+                if count % batchSize == 0:  
+                    count = 0  
+                    if aug_data:  
+                        img_batch, mask_batch = augmentImages(img_batch, mask_batch)  
+                      
+                    if net.find('caps') != -1:  
+                        yield ([img_batch, mask_batch], [mask_batch, mask_batch*img_batch])  
+                    else:  
+                        yield (img_batch, mask_batch)  
+          
+        if count != 0:  
+            if aug_data:  
+                img_batch[:count,...], mask_batch[:count,...] = augmentImages(img_batch[:count,...],  
+                                                                              mask_batch[:count,...])  
+            if net.find('caps') != -1:  
+                yield ([img_batch[:count, ...], mask_batch[:count, ...]],  
+                       [mask_batch[:count, ...], mask_batch[:count, ...] * img_batch[:count, ...]])  
+            else:  
+                yield (img_batch[:count,...], mask_batch[:count,...])
 
 @threadsafe_generator  
 def generate_val_batches_patches(root_path, val_list, net_input_shape, net, batchSize=1,   
@@ -547,7 +705,21 @@ def generate_test_batches_patches(root_path, test_list, net_input_shape, batchSi
         yield (img_batch[:count,:,:,:])
 
 
-
+def get_train_generator(args, root_path, train_list, net_input_shape, net):  
+    if args.multisize_training:  
+        return generate_train_batches_patches_multisize(  
+            root_path, train_list, net_input_shape, net,  
+            batchSize=args.batch_size,  
+            patch_sizes=args.patch_sizes,  
+            size_distribution=args.size_distribution,  
+            aug_data=args.aug_data  
+        )  
+    else:  
+        return generate_train_batches_patches(  
+            root_path, train_list, net_input_shape, net,  
+            batchSize=args.batch_size,  
+            aug_data=args.aug_data  
+        )
 
 
 
